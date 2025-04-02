@@ -4,16 +4,19 @@ import android.Manifest;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
+import android.net.Uri;
 import android.os.Bundle;
-import android.util.SparseArray;
+import android.provider.MediaStore;
 import android.view.View;
 import android.widget.Button;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.activity.EdgeToEdge;
+import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
@@ -21,16 +24,22 @@ import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 
-import com.google.android.gms.vision.Frame;
-import com.google.android.gms.vision.text.TextBlock;
-import com.google.android.gms.vision.text.TextRecognizer;
+import com.google.mlkit.vision.common.InputImage;
+import com.google.mlkit.vision.text.Text;
+import com.google.mlkit.vision.text.TextRecognition;
+import com.google.mlkit.vision.text.TextRecognizer;
+import com.google.mlkit.vision.text.latin.TextRecognizerOptions;
+
+import java.io.IOException;
 
 public class MainActivity extends AppCompatActivity {
 
-    Button capture, copy;
-    TextView tvData;
-    Bitmap bitmap;
-    private static final int REQUEST_CAMERA_CODE = 100;
+    private static final int PICK_IMAGE_REQUEST = 1;
+    private static final int REQUEST_CAMERA_PERMISSION = 100;
+
+    private Button capture, copy;
+    private TextView tvData;
+    private Bitmap bitmap;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -48,56 +57,58 @@ public class MainActivity extends AppCompatActivity {
         copy = findViewById(R.id.btn_copy);
         tvData = findViewById(R.id.text_data);
 
-        if (ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED){
-            ActivityCompat.requestPermissions(MainActivity.this, new String[]{
-                    Manifest.permission.CAMERA
-            }, REQUEST_CAMERA_CODE);
-        }
+        requestCameraPermission();
 
-        capture.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                getTextFromImage(bitmap);
-            }
-        });
-
-        copy.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                String scanned_text = tvData.getText().toString();
-                copyToClipboard(scanned_text);
-            }
-        });
-
+        capture.setOnClickListener(v -> openGallery());
+        copy.setOnClickListener(v -> copyToClipboard(tvData.getText().toString()));
     }
 
-    private void getTextFromImage(Bitmap bitmap){
-        TextRecognizer recognizer = new TextRecognizer.Builder(this).build();
-        if (!recognizer.isOperational()){
-            Toast.makeText(MainActivity.this, "Error Occurred", Toast.LENGTH_SHORT).show();
+    private void requestCameraPermission() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.CAMERA}, REQUEST_CAMERA_PERMISSION);
         }
-        else {
-            Frame frame = new Frame.Builder().setBitmap(bitmap).build();
-            SparseArray<TextBlock> textBlockSparseArray = recognizer.detect(frame);
-            StringBuilder stringBuilder = new StringBuilder();
-            for (int i=0; i<textBlockSparseArray.size();i++){
-                TextBlock textBlock = textBlockSparseArray.valueAt(i);
-                stringBuilder.append(textBlock.getValue());
-                stringBuilder.append("\n");
+    }
+
+    private void openGallery() {
+        Intent intent = new Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI);
+        intent.setType("image/*");
+        startActivityForResult(intent, PICK_IMAGE_REQUEST);
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+
+        if (requestCode == PICK_IMAGE_REQUEST && resultCode == RESULT_OK && data != null) {
+            Uri imageUri = data.getData();
+            try {
+                bitmap = MediaStore.Images.Media.getBitmap(this.getContentResolver(), imageUri);
+                getTextFromImage(bitmap);
+            } catch (IOException e) {
+                e.printStackTrace();
+                Toast.makeText(this, "Failed to load image", Toast.LENGTH_SHORT).show();
             }
-
-            tvData.setText(stringBuilder.toString());
-            capture.setText("Retake");
-            copy.setVisibility(View.VISIBLE);
-
         }
+    }
+
+    private void getTextFromImage(Bitmap bitmap) {
+        InputImage image = InputImage.fromBitmap(bitmap, 0);
+        TextRecognizer recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
+
+        recognizer.process(image)
+                .addOnSuccessListener(visionText -> {
+                    String extractedText = visionText.getText();
+                    tvData.setText(extractedText);
+                    capture.setText("Retake");
+                    copy.setVisibility(View.VISIBLE);
+                })
+                .addOnFailureListener(e -> Toast.makeText(MainActivity.this, "Failed to recognize text", Toast.LENGTH_SHORT).show());
     }
 
     private void copyToClipboard(String text) {
-        ClipboardManager clipBoard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+        ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
         ClipData clip = ClipData.newPlainText("copied data", text);
-        clipBoard.setPrimaryClip(clip);
-        Toast.makeText(MainActivity.this, "copied to clipboard", Toast.LENGTH_SHORT).show();
+        clipboard.setPrimaryClip(clip);
+        Toast.makeText(MainActivity.this, "Copied to clipboard", Toast.LENGTH_SHORT).show();
     }
-
 }

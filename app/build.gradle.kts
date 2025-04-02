@@ -41,6 +41,11 @@ dependencies {
     androidTestImplementation(libs.ext.junit)
     androidTestImplementation(libs.espresso.core)
 
-    //mobile vision api
-    implementation (libs.play.services.vision)
+    //ml kit ocr api
+    implementation ("com.google.mlkit:text-recognition:16.0.1")
+
+    //image loading api
+    implementation ("com.github.bumptech.glide:glide:4.16.0")
+
+    annotationProcessor ("com.github.bumptech.glide:compiler:4.16.0")
 }
